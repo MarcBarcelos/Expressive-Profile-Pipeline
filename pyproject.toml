@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ep_pipeline"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "torch>=2.10",
+    "spacy>=3.8",
+    "sentence-transformers>=5.3",
+    "textdescriptives>=2.8",
+    "factor-analyzer>=0.5.1",
+    "scikit-learn>=1.8",
+    "pandas>=3.0",
+    "numpy>=1.26",
+    "joblib>=1.5",
+    "matplotlib>=3.10",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
