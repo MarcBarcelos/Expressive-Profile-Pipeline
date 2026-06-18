@@ -54,28 +54,28 @@ You will also need:
 
 ```
 ep_pipeline/
-├── config.py              # MetricsConfig + PromptConfig — all parameters in one place
-├── io.py                  # JSONL/CSV loading, parquet/csv checkpoints
-├── models.py              # device selection, spaCy + embedder loading
-├── assemble_corpus.py     # build a unified (id, source, text) table from raw inputs
+├── config.py                   # MetricsConfig + PromptConfig — all parameters in one place
+├── io.py                       # JSONL/CSV loading, parquet/csv checkpoints
+├── models.py                   # device selection, spaCy + embedder loading
+├── assemble_corpus.py          # build a unified (id, source, text) table from raw inputs
 ├── ai_imitation/
-│   ├── completion_mlx.py  # CompletionMLX — load and generate with an MLX model
-│   ├── make_prompts.py    # sample sentence-complete excerpts + build prompts
-│   └── run_batch_mlx.py   # run a prompt JSONL through the model, write completions
+│   ├── completion_mlx.py       # CompletionMLX — load and generate with an MLX model
+│   ├── make_prompts.py         # sample sentence-complete excerpts + build prompts
+│   └── run_batch_mlx.py        # run a prompt JSONL through the model, write completions
 ├── scoring/
 │   ├── get_td_linguistic.py    # TextDescriptives metrics
 │   ├── get_other_linguistic.py # MATTR, entropy, perplexity
 │   ├── get_semantic.py         # embedding-based semantic metrics
 │   └── runner.py               # checkpointed map over records (resumable)
 └── efa/
-    ├── efa.py             # factorability checks, parallel analysis, fit/apply
-    └── metric_taxonomy.py # feature categories + drop list
+    ├── efa.py                  # factorability checks, parallel analysis, fit/apply
+    └── metric_taxonomy.py      # feature categories + drop list
 
 ep_pipeline_run_templates/
-├── run_ai_continuation.py # stage 0: generate AI continuations from a corpus
-├── run_scoring.py         # stage 1: score a corpus
-├── run_efa.py             # stage 2: fit the factor model
-└── run_apply_efa.py       # stage 3: apply the model to new data
+├── run_ai_continuation.py      # stage 0: generate AI continuations from a corpus
+├── run_scoring.py              # stage 1: score a corpus
+├── run_efa.py                  # stage 2: fit the factor model
+└── run_apply_efa.py            # stage 3: apply the model to new data
 
 tests/
 ```
