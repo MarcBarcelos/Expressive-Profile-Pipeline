@@ -91,6 +91,25 @@ Copy the relevant template from `ep_pipeline_run_templates/`, set `PROJECT_ROOT`
 1. `build_excerpts_and_prompts` samples sentence-complete chunks from each text and builds a continuation prompt for each.
 2. `run_batch` loads the MLX model and generates a completion for every prompt, skipping any already done (safe to interrupt and resume).
 
+```python
+from ep_pipeline.config import PromptConfig
+from ep_pipeline.io import load_jsonl
+from ep_pipeline.ai_imitation import build_excerpts_and_prompts, run_batch
+import json
+
+cfg = PromptConfig(n_chunks=3, chunk_min=500, chunk_max=600)
+corpus = load_jsonl("corpus.jsonl")  # needs "id" and "text" per record
+
+excerpts_df, prompts = build_excerpts_and_prompts(corpus, cfg=cfg)
+excerpts_df.to_csv("excerpts.csv", index=False)
+with open("prompts.jsonl", "w") as f:
+    for p in prompts:
+        f.write(json.dumps(p) + "\n")
+
+run_batch("prompts.jsonl", "outputs.jsonl", model_id="/path/to/model",
+          max_new_tokens=cfg.max_new_tokens, temp=cfg.temp, top_p=cfg.top_p)
+```
+
 **Outputs:**
 - `excerpts.csv` — human text chunks with metadata, one row per chunk
 - `prompts.jsonl` — the prompts sent to the model
@@ -102,6 +121,22 @@ Copy the relevant template from `ep_pipeline_run_templates/`, set `PROJECT_ROOT`
 
 `build_text_table` merges them into a unified table with one `"human"` row and one `"ai"` row per chunk `id`. Each scoring function then runs through `map_with_checkpoints`, which saves intermediate results and resumes after interruption.
 
+```python
+from ep_pipeline.config import MetricsConfig
+from ep_pipeline.io import load_jsonl
+from ep_pipeline.assemble_corpus import build_text_table
+from ep_pipeline.scoring.runner import map_with_checkpoints
+
+cfg = MetricsConfig()
+prompts = load_jsonl("prompts.jsonl")
+outputs = load_jsonl("outputs.jsonl")
+
+records = build_text_table(prompts, prompt_key="prompt", outputs=outputs).to_dict("records")
+# → one "human" row and one "ai" row per chunk id
+
+scores = map_with_checkpoints(records, score_fn, "checkpoint.csv", ["id", "source"])
+```
+
 **Output:** `metrics_full.csv` — one row per (chunk, source) with all linguistic, semantic, and structural metrics merged.
 
 ### Step 2 — Fit the factor model (`run_efa.py`)
@@ -109,6 +144,21 @@ Copy the relevant template from `ep_pipeline_run_templates/`, set `PROJECT_ROOT`
 **Input:** `metrics_full.csv` from step 1.
 
 Scales features, checks factorability (KMO + Bartlett), runs parallel analysis to pick the number of factors, and fits an oblimin-rotated factor model.
+
+```python
+from ep_pipeline.config import MetricsConfig
+from ep_pipeline.io import load_csv
+from ep_pipeline.efa.efa import prepare_features, scale_metrics, fit_efa, add_factor_scores
+from ep_pipeline.efa.metric_taxonomy import CATEGORY_OF, DROP_THESE
+
+cfg = MetricsConfig()
+all_metrics = load_csv("metrics_full.csv")
+
+feat_df, feature_cols, category_map, meta_df = prepare_features(all_metrics, CATEGORY_OF, DROP_THESE)
+scaled, scaler = scale_metrics(feat_df)
+fa, loadings_df, var_df = fit_efa(scaled, feature_cols, category_map, n_factors=4)
+all_metrics_with_scores, scores_df = add_factor_scores(all_metrics, fa, scaled, meta_df, n_factors=4)
+```
 
 **Outputs:**
 - `scaler.joblib`, `fa.joblib`, `feature_cols.joblib` — fitted objects for step 3
@@ -121,6 +171,19 @@ Scales features, checks factorability (KMO + Bartlett), runs parallel analysis t
 **Input:** a new `metrics_full.csv` + the fitted objects from step 2.
 
 Projects new documents onto the existing factor dimensions without refitting, so scores are comparable across datasets.
+
+```python
+import joblib
+from ep_pipeline.io import load_csv
+from ep_pipeline.efa.efa import apply_efa
+
+all_metrics  = load_csv("new_metrics_full.csv")
+scaler       = joblib.load("efa/scaler.joblib")
+fa           = joblib.load("efa/fa.joblib")
+feature_cols = joblib.load("efa/feature_cols.joblib")
+
+factor_scores = apply_efa(all_metrics, feature_cols, scaler, fa)
+```
 
 ## Configuration
 
@@ -137,7 +200,3 @@ Two config dataclasses in `config.py`:
 - The semantic scorer defines an explicit all-NaN output for texts too short to chunk, so missingness is part of the metric contract rather than silent failure.
 - `run_batch_mlx` resumes automatically if interrupted — already-completed IDs are skipped.
 - Set `PROJECT_ROOT` in each run template before use.
-
-## License
-
-No license file is currently included. Contact the repository owner before reuse.
