@@ -10,7 +10,7 @@ from ep_pipeline.efa.efa import (
 from ep_pipeline.efa.metric_taxonomy import CATEGORY_OF, DROP_THESE
 
 # PATHS FOR THIS PROJECT
-PROJECT_ROOT = Path("/Users/au728638/Library/CloudStorage/OneDrive-Aarhusuniversitet/Desktop/3. PhD Project/3. Code/Specific_Project")
+PROJECT_ROOT = Path("/path/to/your/project")
 IN_FP    = PROJECT_ROOT / "outputs" / "AI_Comparison" / "results" / "data" / "metrics_full.csv"
 OUT_DIR  = PROJECT_ROOT / "outputs" / "AI_Comparison" / "results" / "efa"
 VIS_DIR  = PROJECT_ROOT / "outputs" / "AI_Comparison" / "visualizations"

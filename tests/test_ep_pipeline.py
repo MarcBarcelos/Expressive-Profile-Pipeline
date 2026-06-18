@@ -12,8 +12,10 @@ import pandas as pd
 import pytest
 
 import os
-os.environ.setdefault("EP_E5_MODEL_PATH", 
+os.environ.setdefault("EP_E5_MODEL_PATH",
     "/Users/au728638/Library/CloudStorage/OneDrive-Aarhusuniversitet/Desktop/3. PhD Project/3. Code/models/e5-small")
+os.environ.setdefault("EP_MLX_MODEL_PATH",
+    "/Users/au728638/Library/CloudStorage/OneDrive-Aarhusuniversitet/Desktop/3. PhD Project/3. Code/models/Qwen3.5-9B-OptiQ-4bit")
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -444,3 +446,341 @@ def test_compute_semantic_metrics_short_text(embedder):
         seed=cfg.seed,
     )
     assert result == _empty_metrics()
+
+
+# ── PromptConfig ──────────────────────────────────────────────────────────────
+
+def test_prompt_config_defaults():
+    from ep_pipeline.config import PromptConfig
+    cfg = PromptConfig()
+    assert cfg.n_chunks == 3
+    assert cfg.chunk_min == 500
+    assert cfg.chunk_max == 600
+    assert cfg.extra_min == 50
+    assert cfg.extra_max == 120
+    assert cfg.max_tries == 60
+    assert cfg.seed == 19
+    assert cfg.max_new_tokens == 650
+    assert cfg.temp == 0.7
+    assert cfg.top_p == 0.9
+
+
+# ── make_prompts: word helpers ────────────────────────────────────────────────
+
+def test_tokenize_words():
+    from ep_pipeline.ai_imitation.make_prompts import tokenize_words
+    assert tokenize_words("hello world") == ["hello", "world"]
+    assert tokenize_words("") == []
+
+def test_detokenize_words():
+    from ep_pipeline.ai_imitation.make_prompts import detokenize_words
+    assert detokenize_words(["hello", "world"]) == "hello world"
+    assert detokenize_words([]) == ""
+
+def test_count_words():
+    from ep_pipeline.ai_imitation.make_prompts import count_words
+    assert count_words("hello world") == 2
+    assert count_words("  spaced  out  ") == 2
+    assert count_words("") == 0
+
+
+# ── make_prompts: sentence snapping ──────────────────────────────────────────
+
+def test_snap_ends_at_sentence_boundary():
+    from ep_pipeline.ai_imitation.make_prompts import _snap_to_sentence_bounds, tokenize_words
+    words = tokenize_words(
+        "She walked in. He stayed out. They talked later. The end is near now."
+    )
+    out = _snap_to_sentence_bounds(words, min_len=3, max_len=20)
+    assert len(out) >= 3
+    assert any(" ".join(out).rstrip().endswith(p) for p in [".", "!", "?", '."', '!"'])
+
+def test_snap_no_punctuation_fallback():
+    from ep_pipeline.ai_imitation.make_prompts import _snap_to_sentence_bounds
+    words = ["word"] * 15
+    out = _snap_to_sentence_bounds(words, min_len=3, max_len=10)
+    assert len(out) <= 10
+
+def test_snap_too_short_returns_empty():
+    from ep_pipeline.ai_imitation.make_prompts import _snap_to_sentence_bounds, tokenize_words
+    out = _snap_to_sentence_bounds(tokenize_words("Hi."), min_len=10, max_len=20)
+    assert out == []
+
+
+# ── make_prompts: sample_chunk ────────────────────────────────────────────────
+
+_LONG_TEXT = (
+    "She walked into the room and looked around carefully. "
+    "Everything was exactly as she had left it behind. "
+    "The books were stacked neatly on the old wooden table. "
+    "She sat down in the chair by the window slowly. "
+    "Outside, the street was quiet and completely still. "
+) * 40  # ~800 words
+
+def test_sample_chunk_length_in_range():
+    from ep_pipeline.ai_imitation.make_prompts import sample_chunk, tokenize_words
+    words = tokenize_words(_LONG_TEXT)
+    chunk = sample_chunk(words, min_len=50, max_len=100)
+    assert 50 <= len(chunk) <= 100
+
+def test_sample_chunk_too_short_returns_empty():
+    from ep_pipeline.ai_imitation.make_prompts import sample_chunk
+    assert sample_chunk(["a", "b"], min_len=50, max_len=100) == []
+
+def test_sample_chunk_never_exceeds_max():
+    from ep_pipeline.ai_imitation.make_prompts import sample_chunk, tokenize_words
+    words = tokenize_words(_LONG_TEXT)
+    for _ in range(10):
+        chunk = sample_chunk(words, min_len=20, max_len=50)
+        assert len(chunk) <= 50
+
+
+# ── make_prompts: build_prompt ────────────────────────────────────────────────
+
+def test_build_prompt_contains_passage_marker():
+    from ep_pipeline.ai_imitation.make_prompts import build_prompt
+    p = build_prompt("Some excerpt text.", 100)
+    assert "PASSAGE:" in p
+    assert "Some excerpt text." in p
+
+def test_build_prompt_mentions_target_words():
+    from ep_pipeline.ai_imitation.make_prompts import build_prompt
+    assert "250" in build_prompt("text", 250)
+
+
+# ── make_prompts: build_excerpts_and_prompts ─────────────────────────────────
+
+@pytest.fixture
+def corpus_records():
+    para = (
+        "The morning light filtered through the curtains slowly. "
+        "She rose carefully, her feet finding the cold hard floor. "
+        "Outside, the birds had already begun their morning chorus. "
+        "She filled the kettle and waited quietly by the window. "
+        "The street below was empty and still, as always at this hour. "
+    )
+    text = (para * 20).strip()  # ~800 words
+    return [
+        {"id": f"doc_{i}", "text": text, "author": f"author_{i}"}
+        for i in range(5)
+    ]
+
+def test_build_excerpts_returns_dataframe(corpus_records):
+    from ep_pipeline.ai_imitation.make_prompts import build_excerpts_and_prompts
+    from ep_pipeline.config import PromptConfig
+    excerpts_df, prompts = build_excerpts_and_prompts(
+        corpus_records, cfg=PromptConfig(n_chunks=2, chunk_min=50, chunk_max=100)
+    )
+    assert isinstance(excerpts_df, pd.DataFrame)
+    assert isinstance(prompts, list)
+
+def test_build_excerpts_chunk_count(corpus_records):
+    from ep_pipeline.ai_imitation.make_prompts import build_excerpts_and_prompts
+    from ep_pipeline.config import PromptConfig
+    cfg = PromptConfig(n_chunks=2, chunk_min=50, chunk_max=100)
+    excerpts_df, prompts = build_excerpts_and_prompts(corpus_records, cfg=cfg)
+    assert len(excerpts_df) == len(corpus_records) * 2
+    assert len(prompts) == len(excerpts_df)
+
+def test_build_excerpts_extra_fields_passthrough(corpus_records):
+    from ep_pipeline.ai_imitation.make_prompts import build_excerpts_and_prompts
+    from ep_pipeline.config import PromptConfig
+    excerpts_df, _ = build_excerpts_and_prompts(
+        corpus_records, cfg=PromptConfig(n_chunks=1, chunk_min=50, chunk_max=100)
+    )
+    assert "author" in excerpts_df.columns
+
+def test_build_excerpts_ids_match_prompts(corpus_records):
+    from ep_pipeline.ai_imitation.make_prompts import build_excerpts_and_prompts
+    from ep_pipeline.config import PromptConfig
+    excerpts_df, prompts = build_excerpts_and_prompts(
+        corpus_records, cfg=PromptConfig(n_chunks=1, chunk_min=50, chunk_max=100)
+    )
+    assert set(excerpts_df["id"]) == {p["id"] for p in prompts}
+
+def test_build_excerpts_skips_short_text():
+    from ep_pipeline.ai_imitation.make_prompts import build_excerpts_and_prompts
+    from ep_pipeline.config import PromptConfig
+    records = [{"id": "short", "text": "Too short."}]
+    excerpts_df, prompts = build_excerpts_and_prompts(
+        records, cfg=PromptConfig(chunk_min=500, chunk_max=600)
+    )
+    assert len(excerpts_df) == 0 and len(prompts) == 0
+
+def test_build_excerpts_custom_keys(corpus_records):
+    from ep_pipeline.ai_imitation.make_prompts import build_excerpts_and_prompts
+    from ep_pipeline.config import PromptConfig
+    renamed = [{"doc_id": r["id"], "content": r["text"]} for r in corpus_records]
+    excerpts_df, _ = build_excerpts_and_prompts(
+        renamed, id_key="doc_id", text_key="content",
+        cfg=PromptConfig(n_chunks=1, chunk_min=50, chunk_max=100),
+    )
+    assert len(excerpts_df) == len(corpus_records)
+
+def test_build_excerpts_prompt_has_passage_marker(corpus_records):
+    from ep_pipeline.ai_imitation.make_prompts import build_excerpts_and_prompts
+    from ep_pipeline.config import PromptConfig
+    _, prompts = build_excerpts_and_prompts(
+        corpus_records, cfg=PromptConfig(n_chunks=1, chunk_min=50, chunk_max=100)
+    )
+    assert all("PASSAGE:" in p["prompt"] for p in prompts)
+
+def test_build_excerpts_reproducible(corpus_records):
+    from ep_pipeline.ai_imitation.make_prompts import build_excerpts_and_prompts
+    from ep_pipeline.config import PromptConfig
+    cfg = PromptConfig(n_chunks=2, chunk_min=50, chunk_max=100, seed=42)
+    df1, _ = build_excerpts_and_prompts(corpus_records, cfg=cfg)
+    df2, _ = build_excerpts_and_prompts(corpus_records, cfg=cfg)
+    assert list(df1["excerpt"]) == list(df2["excerpt"])
+
+def test_build_excerpts_source_id_is_original_id(corpus_records):
+    from ep_pipeline.ai_imitation.make_prompts import build_excerpts_and_prompts
+    from ep_pipeline.config import PromptConfig
+    excerpts_df, _ = build_excerpts_and_prompts(
+        corpus_records, cfg=PromptConfig(n_chunks=1, chunk_min=50, chunk_max=100)
+    )
+    original_ids = {r["id"] for r in corpus_records}
+    assert set(excerpts_df["source_id"]).issubset(original_ids)
+
+
+# ── run_batch_mlx (CompletionMLX mocked) ─────────────────────────────────────
+
+def _mlx_lm_available():
+    try:
+        import mlx_lm  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+@pytest.mark.skipif(not _mlx_lm_available(), reason="mlx_lm not installed")
+def test_run_batch_writes_output(tmp_path):
+    import json
+    from unittest.mock import MagicMock, patch
+    from ep_pipeline.ai_imitation.run_batch_mlx import run_batch
+
+    prompts_file = tmp_path / "prompts.jsonl"
+    output_file  = tmp_path / "outputs.jsonl"
+    prompts_file.write_text(
+        json.dumps({"id": "doc_1__chunk00", "prompt": "PASSAGE:some text"}) + "\n" +
+        json.dumps({"id": "doc_2__chunk00", "prompt": "PASSAGE:other text"}) + "\n"
+    )
+
+    mock_model = MagicMock()
+    mock_model.tokenizer.apply_chat_template.return_value = "formatted_prompt"
+    mock_model.generate.return_value = "AI continuation text."
+
+    with patch("ep_pipeline.ai_imitation.run_batch_mlx.CompletionMLX", return_value=mock_model):
+        run_batch(prompts_file, output_file, model_id="fake-model")
+
+    lines = [json.loads(l) for l in output_file.read_text().splitlines()]
+    assert len(lines) == 2
+    assert lines[0]["id"] == "doc_1__chunk00"
+    assert lines[0]["completion"] == "AI continuation text."
+    assert "model" in lines[0]
+    assert "timestamp_utc" in lines[0]
+    assert "max_new_tokens" in lines[0]
+
+@pytest.mark.skipif(not _mlx_lm_available(), reason="mlx_lm not installed")
+def test_run_batch_skips_completed(tmp_path):
+    import json
+    from unittest.mock import MagicMock, patch
+    from ep_pipeline.ai_imitation.run_batch_mlx import run_batch
+
+    prompts_file = tmp_path / "prompts.jsonl"
+    output_file  = tmp_path / "outputs.jsonl"
+    prompts_file.write_text(
+        json.dumps({"id": "a", "prompt": "PASSAGE:text1"}) + "\n" +
+        json.dumps({"id": "b", "prompt": "PASSAGE:text2"}) + "\n"
+    )
+    output_file.write_text(json.dumps({"id": "a", "completion": "already done"}) + "\n")
+
+    mock_model = MagicMock()
+    mock_model.tokenizer.apply_chat_template.return_value = "prompt"
+    mock_model.generate.return_value = "new completion"
+
+    with patch("ep_pipeline.ai_imitation.run_batch_mlx.CompletionMLX", return_value=mock_model):
+        run_batch(prompts_file, output_file, model_id="fake-model")
+
+    assert mock_model.generate.call_count == 1  # only "b" was processed
+    lines = [json.loads(l) for l in output_file.read_text().splitlines()]
+    assert {l["id"] for l in lines} == {"a", "b"}
+
+@pytest.mark.skipif(not _mlx_lm_available(), reason="mlx_lm not installed")
+def test_run_batch_respects_generation_params(tmp_path):
+    import json
+    from unittest.mock import MagicMock, patch
+    from ep_pipeline.ai_imitation.run_batch_mlx import run_batch
+
+    prompts_file = tmp_path / "prompts.jsonl"
+    output_file  = tmp_path / "outputs.jsonl"
+    prompts_file.write_text(json.dumps({"id": "x", "prompt": "PASSAGE:text"}) + "\n")
+
+    mock_model = MagicMock()
+    mock_model.tokenizer.apply_chat_template.return_value = "prompt"
+    mock_model.generate.return_value = "result"
+
+    with patch("ep_pipeline.ai_imitation.run_batch_mlx.CompletionMLX", return_value=mock_model):
+        run_batch(prompts_file, output_file, model_id="fake", max_new_tokens=300, temp=0.5)
+
+    mock_model.generate.assert_called_once_with("prompt", max_new_tokens=300)
+
+
+# ── CompletionMLX (model-dependent) ──────────────────────────────────────────
+
+def _mlx_model_path():
+    return os.environ.get("EP_MLX_MODEL_PATH", "")
+
+def _mlx_model_available():
+    path = _mlx_model_path()
+    return _mlx_lm_available() and bool(path) and os.path.exists(path)
+
+@pytest.mark.skipif(not _mlx_lm_available(), reason="mlx_lm not installed")
+def test_completion_mlx_init_does_not_load():
+    from ep_pipeline.ai_imitation.completion_mlx import CompletionMLX
+    c = CompletionMLX(model_id="fake-path")
+    assert c.model is None
+    assert c.tokenizer is None
+
+@pytest.mark.skipif(not _mlx_lm_available(), reason="mlx_lm not installed")
+def test_completion_mlx_sampling_params_set():
+    from ep_pipeline.ai_imitation.completion_mlx import CompletionMLX
+    c = CompletionMLX(model_id="fake", sampling_params={"temp": 0.5, "top_p": 0.8})
+    assert c.sampler is not None
+
+@pytest.mark.skipif(not _mlx_lm_available(), reason="mlx_lm not installed")
+def test_completion_mlx_no_sampling_params():
+    from ep_pipeline.ai_imitation.completion_mlx import CompletionMLX
+    c = CompletionMLX(model_id="fake")
+    assert c.sampler is None
+    assert c.logits_processors is None
+
+@pytest.fixture(scope="module")
+def mlx_model():
+    if not _mlx_model_available():
+        pytest.skip("MLX model not available — set EP_MLX_MODEL_PATH")
+    from ep_pipeline.ai_imitation.completion_mlx import CompletionMLX
+    c = CompletionMLX(
+        model_id=_mlx_model_path(),
+        sampling_params={"temp": 0.7, "top_p": 0.9},
+    )
+    c.load()
+    return c
+
+@pytest.mark.skipif(not _mlx_model_available(), reason="MLX model not available — set EP_MLX_MODEL_PATH")
+def test_completion_mlx_load(mlx_model):
+    assert mlx_model.model is not None
+    assert mlx_model.tokenizer is not None
+
+@pytest.mark.skipif(not _mlx_model_available(), reason="MLX model not available — set EP_MLX_MODEL_PATH")
+def test_completion_mlx_generate_returns_string(mlx_model):
+    result = mlx_model.generate("Hello, please continue:", max_new_tokens=20)
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+@pytest.mark.skipif(not _mlx_model_available(), reason="MLX model not available — set EP_MLX_MODEL_PATH")
+def test_completion_mlx_lazy_load_on_generate():
+    from ep_pipeline.ai_imitation.completion_mlx import CompletionMLX
+    c = CompletionMLX(model_id=_mlx_model_path())
+    assert c.model is None
+    c.generate("test", max_new_tokens=5)
+    assert c.model is not None

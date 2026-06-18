@@ -6,7 +6,7 @@ from ep_pipeline.io import load_csv, write_table
 from ep_pipeline.efa.efa import apply_efa
 
 # PATHS FOR THIS PROJECT
-PROJECT_ROOT = Path("/Users/au728638/Library/CloudStorage/OneDrive-Aarhusuniversitet/Desktop/3. PhD Project/3. Code/Specific_Project")
+PROJECT_ROOT = Path("/path/to/your/project")
 IN_FP    = PROJECT_ROOT / "outputs" / "AI_Comparison" / "results" / "data" / "new_metrics_full.csv"
 EFA_DIR  = PROJECT_ROOT / "outputs" / "AI_Comparison" / "results" / "efa"
 OUT_DIR  = PROJECT_ROOT / "outputs" / "AI_Comparison" / "results" / "efa_applied"

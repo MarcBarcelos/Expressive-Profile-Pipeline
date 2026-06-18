@@ -1,4 +1,4 @@
-from ep_pipeline.config import MetricsConfig
+from ep_pipeline.config import MetricsConfig, PromptConfig
 from ep_pipeline.io import load_jsonl, load_csv, read_checkpoint, write_table
 from ep_pipeline.models import pick_device, load_embedder, load_spacy_model
 from ep_pipeline.assemble_corpus import build_text_table, extract_passage
@@ -6,6 +6,12 @@ from ep_pipeline.scoring import (
     tokenize, get_td_metrics, mattr, windowed_unigram_entropy, trigram_entropy,
     SEMANTIC_KEYS, _empty_metrics, chunk_by_words, l2_normalize, adj_cos,
     shannon_entropy, compute_semantic_metrics, map_with_checkpoints, _key,
+)
+from ep_pipeline.ai_imitation import (
+    CompletionMLX,
+    build_excerpts_and_prompts, build_prompt, sample_chunk,
+    tokenize_words, detokenize_words, count_words,
+    run_batch,
 )
 from ep_pipeline.efa import (
     prepare_features, scale_metrics, check_efa_assumptions,
@@ -16,7 +22,12 @@ from ep_pipeline.efa import (
 
 __all__ = [
     # config
-    "MetricsConfig",
+    "MetricsConfig", "PromptConfig",
+    # ai_imitation
+    "CompletionMLX",
+    "build_excerpts_and_prompts", "build_prompt", "sample_chunk",
+    "tokenize_words", "detokenize_words", "count_words",
+    "run_batch",
     # io
     "load_jsonl", "load_csv", "read_checkpoint", "write_table",
     # models

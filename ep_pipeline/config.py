@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 @dataclass
 class MetricsConfig:
@@ -27,3 +27,17 @@ class MetricsConfig:
     # efa features
     n_permutations = 500                #eigenvalues aquired from 500 permutation of random data
     top_n = 6                           # Number of loadings to retreive from each dimension
+
+@dataclass
+class PromptConfig:
+    n_chunks: int   = 3                 # chunks sampled per text (one per equal-width segment)
+    chunk_min: int  = 500               # minimum words per chunk
+    chunk_max: int  = 600               # maximum words per chunk
+    extra_min: int  = 50                # extra words added before sentence snapping (lower bound)
+    extra_max: int  = 120               # extra words added before sentence snapping (upper bound)
+    max_tries: int  = 60                # max resampling attempts per segment
+    seed: int       = 19                # random seed for reproducibility
+    # generation
+    max_new_tokens: int   = 650         # max tokens to generate per completion
+    temp:           float = 0.7         # sampling temperature
+    top_p:          float = 0.9         # top-p sampling

@@ -13,15 +13,15 @@ from ep_pipeline.assemble_corpus import extract_passage, build_text_table
 from ep_pipeline.scoring.runner import map_with_checkpoints, _key
 
 # PATHS FOR THIS PROJECT
-PROJECT_ROOT = Path("/Users/au728638/Library/CloudStorage/OneDrive-Aarhusuniversitet/Desktop/3. PhD Project/3. Code/Specific_Project")
-FULL_FP = PROJECT_ROOT / "data" / "fulltext_file.jsonl"
-PROMPTS_FP = PROJECT_ROOT / "data" / "prompt_file.jsonl"
-OUTPUT_FP = PROJECT_ROOT / "outputs" / "output_file.jsonl"
-EXCERPTS_FP = PROJECT_ROOT / "outputs" / "excerpt_file.jsonl"
+PROJECT_ROOT  = Path("/path/to/your/project")
+FULL_FP       = PROJECT_ROOT / "data" / "corpus.jsonl"
+PROMPTS_FP    = PROJECT_ROOT / "outputs" / "ai_continuation" / "prompts.jsonl"
+OUTPUT_FP     = PROJECT_ROOT / "outputs" / "ai_continuation" / "outputs.jsonl"
+EXCERPTS_FP   = PROJECT_ROOT / "outputs" / "ai_continuation" / "excerpts.csv"
 E5_MODEL_PATH = PROJECT_ROOT / "models" / "e5-small"
 
-OUT_DIR = PROJECT_ROOT / "outputs" / "AI_Comparison" /"results"
-VIS_DIR = PROJECT_ROOT / "outputs" / "AI_Comparison" /"visualizations"
+OUT_DIR = PROJECT_ROOT / "outputs" / "AI_Comparison" / "results"
+VIS_DIR = PROJECT_ROOT / "outputs" / "AI_Comparison" / "visualizations"
 TD_FP, SEM_FP, LING_FP = OUT_DIR / "td_checkpoint.csv", OUT_DIR / "sem_checkpoint.csv", OUT_DIR / "ling_checkpoint.csv"
 OUT_FP = OUT_DIR / "data" / "metrics_full.csv"
 
