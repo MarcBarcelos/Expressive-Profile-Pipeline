@@ -9,17 +9,23 @@ The pipeline scores each text on dozens of linguistic and semantic metrics, lear
 The workflow has four stages:
 
 1. **AI Continuation** — sample sentence-complete excerpts from a corpus, build continuation prompts, and run a local MLX model to generate matched AI text.
-2. **Scoring** — compute per-document metrics across three families of features (for both human and AI texts).
+2. **Scoring** — compute per-document metrics across five families of features (for both human and AI texts).
 3. **EFA** — check factorability, choose the number of factors via parallel analysis, fit an oblique factor model, and produce factor scores + loadings.
 4. **Apply** — project new, unseen documents onto the already-fitted factor model.
 
 ### Feature families
 
 **Linguistic (TextDescriptives + custom)**
-Lexical richness (MATTR, type-token ratios, OOV/alpha ratios), word-form complexity (length and syllable statistics), document scale, repetition (duplicate/top n-gram fractions), POS distribution, readability indices (Flesch, SMOG, LIX, etc.), dependency distance, and coherence. Custom additions include moving-average type-token ratio (MATTR), windowed unigram entropy/perplexity, and held-out trigram entropy.
+Lexical richness (MATTR, type-token ratios, OOV/alpha ratios), word-form complexity (length and syllable statistics), document scale, repetition (duplicate/top n-gram fractions), POS distribution, readability indices (Flesch, SMOG, LIX, etc.), dependency distance, and syntactic complexity. Custom additions include windowed unigram entropy/perplexity and held-out trigram entropy.
 
 **Semantic (sentence-embedding based)**
 Computed on overlapping word-chunks embedded with an [E5](https://huggingface.co/intfloat/e5-small) sentence-transformer model. Metrics include first- and second-order coherence, semantic drift, trajectory length, dispersion, PCA-based topic strength, semantic volume, and KMeans topic-cluster entropy. Inspired by Elkins et al. (2023), *"Thematic and semantic coherence in discourse."*
+
+**Affective (lexicon-based)**
+Dimensional affect via NRC-VAD v2 (valence, arousal, dominance — mean and std per document), and categorical affect via the NRC Emotion Intensity Lexicon (eight basic emotions: anger, anticipation, disgust, fear, joy, sadness, surprise, trust — plus Shannon entropy over the emotion distribution). All scores are token-normalized for length robustness.
+
+**Psycholinguistic norms**
+Concreteness (Brysbaert et al.), age-of-acquisition (Kuperman et al.), and word prevalence (Brysbaert et al.) — mean and std per document, loaded via `get_lexicon.py`.
 
 **Structural / meta**
 Document and chunk counts, embedding dimension, and other shape features used to control for size during factor analysis.
@@ -66,6 +72,7 @@ ep_pipeline/
 │   ├── get_td_linguistic.py    # TextDescriptives metrics
 │   ├── get_other_linguistic.py # MATTR, entropy, perplexity
 │   ├── get_semantic.py         # embedding-based semantic metrics
+│   ├── get_lexicon.py          # affective (VAD, emotion) and psycholinguistic norm scorers + loaders
 │   └── runner.py               # checkpointed map over records (resumable)
 └── efa/
     ├── efa.py                  # factorability checks, parallel analysis, fit/apply

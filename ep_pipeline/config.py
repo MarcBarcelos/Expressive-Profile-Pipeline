@@ -28,6 +28,9 @@ class MetricsConfig:
     n_permutations = 500                #eigenvalues aquired from 500 permutation of random data
     top_n = 6                           # Number of loadings to retreive from each dimension
 
+    # affective scoring mode
+    affect_mode: str = "historical"   # "modern" = all affective lexicons; "historical" = concreteness only
+
 @dataclass
 class PromptConfig:
     n_chunks: int   = 3                 # chunks sampled per text (one per equal-width segment)

@@ -61,6 +61,36 @@ CATEGORIES = {
     "Book Size / Shape": (
         "n_chunks", "embedding_dim",
     ),
+     # --- affective: dimensional (NRC-VAD v2) and categorical (NRC Emotion / Affect Intensity Lexicon)---
+    "Affect Dimensions": (
+        "vad_valence_mean", "vad_valence_std",
+        "vad_arousal_mean", "vad_arousal_std",
+        "vad_dominance_mean", "vad_dominance_std",
+    ),
+    "Discrete Emotions": (
+        "emo_anger", "emo_anticipation", "emo_disgust", "emo_fear",
+        "emo_joy", "emo_sadness", "emo_surprise", "emo_trust",
+        "emo_diversity",
+    ),
+    # --- psycholinguistic norms (concreteness + register) ---
+    "Concreteness & Imagery": (
+        "concreteness_mean", "concreteness_std",
+    ),
+    "Lexical Register": (
+        "aoa_mean", "aoa_std", "prevalence_mean",
+    ),
+    # --- punctuation / orthographic expressivity ---
+    "Punctuation Style": (
+        "comma_rate", "semicolon_rate", "colon_rate", "dash_rate",
+        "exclamation_rate", "question_rate", "parenthesis_rate",
+        "quotation_rate", "ellipsis_rate",
+    ),
+    # --- deeper syntactic complexity ---
+    "Syntactic Complexity": (
+        "subordination_ratio", "coordination_ratio", "clauses_per_sentence",
+        "parse_tree_depth_mean", "parse_tree_depth_std",
+        "mean_dependents_per_head", "prop_complex_sentences",
+    ),
 }
 
 CATEGORY_OF = {metric: cat for cat, metrics in CATEGORIES.items() for metric in metrics}

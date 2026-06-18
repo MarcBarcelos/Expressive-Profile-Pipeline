@@ -16,6 +16,8 @@ os.environ.setdefault("EP_E5_MODEL_PATH",
     "/Users/au728638/Library/CloudStorage/OneDrive-Aarhusuniversitet/Desktop/3. PhD Project/3. Code/models/e5-small")
 os.environ.setdefault("EP_MLX_MODEL_PATH",
     "/Users/au728638/Library/CloudStorage/OneDrive-Aarhusuniversitet/Desktop/3. PhD Project/3. Code/models/Qwen3.5-9B-OptiQ-4bit")
+os.environ.setdefault("EP_LEX_DIR",
+    "/Users/au728638/Library/CloudStorage/OneDrive-Aarhusuniversitet/Desktop/3. PhD Project/3. Code/models/lexicons")
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -123,6 +125,160 @@ def test_trigram_entropy_too_short():
     from ep_pipeline.scoring.get_other_linguistic import trigram_entropy
     H, ppl = trigram_entropy(["a", "b"], trigram_test_frac=0.2, trigram_alpha=0.1, seed=42)
     assert math.isnan(H) and math.isnan(ppl)
+
+
+# ── Lexicon-based affect metrics ─────────────────────────────────────────────
+
+# --- score_lexicon ---
+
+def test_score_lexicon_normal():
+    from ep_pipeline.scoring.get_lexicon import score_lexicon
+    lex = {"quick": 0.8, "brown": 0.4, "fox": 0.6}
+    out = score_lexicon(["the", "quick", "brown", "fox"], lex, prefix="t")
+    assert abs(out["t_mean"] - (0.8 + 0.4 + 0.6) / 3) < 1e-6
+    assert "t_std" in out
+    assert abs(out["t_coverage"] - 3 / 4) < 1e-6
+
+def test_score_lexicon_empty_tokens():
+    from ep_pipeline.scoring.get_lexicon import score_lexicon
+    out = score_lexicon([], {}, prefix="t")
+    assert math.isnan(out["t_mean"])
+    assert math.isnan(out["t_coverage"])
+
+def test_score_lexicon_no_overlap():
+    from ep_pipeline.scoring.get_lexicon import score_lexicon
+    out = score_lexicon(["a", "b"], {"x": 1.0}, prefix="t")
+    assert math.isnan(out["t_mean"])
+    assert out["t_coverage"] == 0.0
+
+def test_score_lexicon_coverage_disabled():
+    from ep_pipeline.scoring.get_lexicon import score_lexicon
+    out = score_lexicon(["a"], {"a": 1.0}, prefix="t", coverage=False)
+    assert "t_coverage" not in out
+
+def test_score_lexicon_custom_agg():
+    from ep_pipeline.scoring.get_lexicon import score_lexicon
+    out = score_lexicon(["a", "b"], {"a": 1.0, "b": 3.0}, prefix="p",
+                        agg=("min", "max"), coverage=False)
+    assert out["p_min"] == 1.0
+    assert out["p_max"] == 3.0
+    assert "p_mean" not in out
+
+
+# --- vad_metrics ---
+
+_VAD_LEX = {
+    "happy": {"valence": 0.9, "arousal": 0.7, "dominance": 0.6},
+    "sad":   {"valence": 0.2, "arousal": 0.3, "dominance": 0.3},
+    "angry": {"valence": 0.1, "arousal": 0.8, "dominance": 0.7},
+}
+
+def test_vad_metrics_normal():
+    from ep_pipeline.scoring.get_lexicon import vad_metrics
+    out = vad_metrics(["happy", "sad", "unknown"], _VAD_LEX)
+    assert abs(out["vad_valence_mean"] - (0.9 + 0.2) / 2) < 1e-6
+    assert abs(out["vad_coverage"] - 2 / 3) < 1e-6
+    assert "vad_arousal_mean" in out
+    assert "vad_dominance_mean" in out
+
+def test_vad_metrics_empty_tokens():
+    from ep_pipeline.scoring.get_lexicon import vad_metrics
+    out = vad_metrics([], _VAD_LEX)
+    assert math.isnan(out["vad_valence_mean"])
+    assert math.isnan(out["vad_coverage"])
+
+def test_vad_metrics_no_overlap():
+    from ep_pipeline.scoring.get_lexicon import vad_metrics
+    out = vad_metrics(["unknown"], _VAD_LEX)
+    assert math.isnan(out["vad_valence_mean"])
+    assert out["vad_coverage"] == 0.0
+
+
+# --- emotion_metrics ---
+
+_EMO_LEX = {
+    "joyful":  {"joy": 0.9, "trust": 0.4, "anticipation": 0.3},
+    "furious": {"anger": 0.95, "disgust": 0.6},
+    "scared":  {"fear": 0.8, "surprise": 0.5},
+}
+
+def test_emotion_metrics_normal():
+    from ep_pipeline.scoring.get_lexicon import emotion_metrics, EMOTIONS
+    out = emotion_metrics(["joyful", "furious", "scared"], _EMO_LEX)
+    expected_keys = {f"emo_{e}" for e in EMOTIONS} | {"emo_diversity"}
+    assert set(out.keys()) == expected_keys
+    assert out["emo_joy"] > 0
+    assert out["emo_anger"] > 0
+    assert out["emo_diversity"] > 0
+
+def test_emotion_metrics_empty_tokens():
+    from ep_pipeline.scoring.get_lexicon import emotion_metrics, EMOTIONS
+    out = emotion_metrics([], _EMO_LEX)
+    assert all(math.isnan(out[f"emo_{e}"]) for e in EMOTIONS)
+    assert math.isnan(out["emo_diversity"])
+
+def test_emotion_metrics_no_overlap_gives_zero_diversity():
+    from ep_pipeline.scoring.get_lexicon import emotion_metrics
+    out = emotion_metrics(["unknown"], _EMO_LEX)
+    assert out["emo_diversity"] == 0.0
+    assert out["emo_joy"] == 0.0
+
+def test_emotion_metrics_uniform_gives_max_diversity():
+    """Uniform distribution across all 8 emotions → entropy = log(8)."""
+    from ep_pipeline.scoring.get_lexicon import emotion_metrics, EMOTIONS
+    lex = {e: {e: 1.0} for e in EMOTIONS}
+    out = emotion_metrics(list(EMOTIONS), lex)
+    assert abs(out["emo_diversity"] - math.log(8)) < 1e-5
+
+def test_emotion_metrics_no_sentiment_keys():
+    """Removed sentiment columns must not appear in output."""
+    from ep_pipeline.scoring.get_lexicon import emotion_metrics
+    out = emotion_metrics(["joyful"], _EMO_LEX)
+    assert "emo_positive" not in out
+    assert "emo_negative" not in out
+
+
+# --- lexicon loaders ---
+
+def test_load_vad_lexicon(tmp_path):
+    from ep_pipeline.scoring.get_lexicon import load_vad_lexicon
+    p = tmp_path / "vad.txt"
+    p.write_text("word\tvalence\tarousal\tdominance\nhappy\t0.9\t0.7\t0.6\nsad\t0.2\t0.3\t0.3\n")
+    lex = load_vad_lexicon(p)
+    assert "happy" in lex
+    assert abs(lex["happy"]["valence"] - 0.9) < 1e-6
+    assert "sad" in lex
+
+def test_load_emotion_lexicon(tmp_path):
+    from ep_pipeline.scoring.get_lexicon import load_emotion_lexicon
+    p = tmp_path / "emo.txt"
+    p.write_text("happy\tjoy\t0.8\nhappy\ttrust\t0.5\nsad\tsadness\t0.9\n")
+    lex = load_emotion_lexicon(p)
+    assert abs(lex["happy"]["joy"] - 0.8) < 1e-6
+    assert abs(lex["sad"]["sadness"] - 0.9) < 1e-6
+
+def test_load_norm_lexicon(tmp_path):
+    from ep_pipeline.scoring.get_lexicon import load_norm_lexicon
+    p = tmp_path / "norms.csv"
+    p.write_text("word,score\nhappy,4.5\nsad,2.1\n")
+    lex = load_norm_lexicon(p)
+    assert abs(lex["happy"] - 4.5) < 1e-6
+    assert abs(lex["sad"] - 2.1) < 1e-6
+
+def test_load_norm_by_name_csv(tmp_path):
+    from ep_pipeline.scoring.get_lexicon import load_norm_by_name
+    p = tmp_path / "norms.csv"
+    p.write_text("Word,Rating\nhappy,4.5\nsad,2.1\n")
+    lex = load_norm_by_name(p, term_field="Word", score_field="Rating")
+    assert abs(lex["happy"] - 4.5) < 1e-6
+    assert abs(lex["sad"] - 2.1) < 1e-6
+
+def test_load_norm_by_name_wrong_columns(tmp_path):
+    from ep_pipeline.scoring.get_lexicon import load_norm_by_name
+    p = tmp_path / "bad.csv"
+    p.write_text("A,B\n1,2\n")
+    with pytest.raises(KeyError):
+        load_norm_by_name(p, term_field="Word", score_field="Score")
 
 
 # ── Semantic helpers (no model needed) ───────────────────────────────────────
@@ -335,6 +491,79 @@ def test_map_with_checkpoints_resumes(tmp_path):
     result = map_with_checkpoints(records, score_fn, ckpt, ["id", "source"])
     assert len(calls) == 2       # only records 3 and 4 should be processed
     assert len(result) == 5
+
+
+# ── Real lexicon integration tests (skip if EP_LEX_DIR not available) ────────
+# Set EP_LEX_DIR env var to override the default lexicon directory.
+
+def _lex_dir():
+    return os.environ.get("EP_LEX_DIR", "")
+
+def _lex_available():
+    return bool(_lex_dir()) and os.path.isdir(_lex_dir())
+
+_LEX_SKIP = pytest.mark.skipif(not _lex_available(),
+                                reason="lexicons not available — set EP_LEX_DIR")
+
+@pytest.fixture(scope="module")
+def real_vad_lex():
+    from ep_pipeline.scoring.get_lexicon import load_vad_lexicon
+    from pathlib import Path
+    return load_vad_lexicon(
+        Path(_lex_dir()) / "NRC-VAD-Lexicon-v2.1" / "NRC-VAD-Lexicon-v2.1.txt"
+    )
+
+@pytest.fixture(scope="module")
+def real_emo_lex():
+    from ep_pipeline.scoring.get_lexicon import load_emotion_lexicon
+    from pathlib import Path
+    return load_emotion_lexicon(
+        Path(_lex_dir()) / "NRC-Emotion-Intensity-Lexicon" / "NRC-Emotion-Intensity-Lexicon-v1.txt"
+    )
+
+@_LEX_SKIP
+def test_real_vad_lexicon_size(real_vad_lex):
+    assert len(real_vad_lex) > 50_000
+
+@_LEX_SKIP
+def test_real_vad_lexicon_known_values(real_vad_lex):
+    assert abs(real_vad_lex["happy"]["valence"] - 0.985) < 0.01
+    assert abs(real_vad_lex["angry"]["valence"] - (-0.756)) < 0.01
+
+@_LEX_SKIP
+def test_real_vad_metrics_positive_tokens(real_vad_lex):
+    from ep_pipeline.scoring.get_lexicon import vad_metrics
+    out = vad_metrics(["happy", "joyful", "pleasant"], real_vad_lex)
+    assert out["vad_valence_mean"] > 0.5
+    assert out["vad_coverage"] == 1.0
+
+@_LEX_SKIP
+def test_real_vad_metrics_negative_tokens(real_vad_lex):
+    from ep_pipeline.scoring.get_lexicon import vad_metrics
+    out = vad_metrics(["angry", "furious", "terrible"], real_vad_lex)
+    assert out["vad_valence_mean"] < 0.0
+
+@_LEX_SKIP
+def test_real_emotion_lexicon_size(real_emo_lex):
+    assert len(real_emo_lex) > 5_000
+
+@_LEX_SKIP
+def test_real_emotion_lexicon_known_values(real_emo_lex):
+    assert abs(real_emo_lex["happy"]["joy"] - 0.788) < 0.01
+    assert abs(real_emo_lex["furious"]["anger"] - 0.929) < 0.01
+
+@_LEX_SKIP
+def test_real_emotion_metrics_joy_tokens(real_emo_lex):
+    from ep_pipeline.scoring.get_lexicon import emotion_metrics
+    out = emotion_metrics(["happy", "joyful", "delightful"], real_emo_lex)
+    assert out["emo_joy"] > out["emo_anger"]
+    assert out["emo_diversity"] > 0
+
+@_LEX_SKIP
+def test_real_emotion_metrics_anger_tokens(real_emo_lex):
+    from ep_pipeline.scoring.get_lexicon import emotion_metrics
+    out = emotion_metrics(["angry", "furious", "enraged"], real_emo_lex)
+    assert out["emo_anger"] > out["emo_joy"]
 
 
 # ── Model-dependent tests (skipped if models missing) ────────────────────────
