@@ -82,70 +82,45 @@ tests/
 
 ## Usage
 
-The `ep_pipeline_run_templates/` scripts are working examples. Copy one, set `PROJECT_ROOT` at the top, and run it.
+Copy the relevant template from `ep_pipeline_run_templates/`, set `PROJECT_ROOT` at the top, and run it. The full pipeline runs in four steps:
 
-### 0. Generate AI continuations
+### Step 0 — Generate AI continuations (`run_ai_continuation.py`)
 
-Input is any JSONL or CSV with at least `id` and `text` columns. The pipeline samples sentence-complete excerpts, builds continuation prompts, and runs a local MLX model.
+**Input:** a JSONL or CSV file where each row has at least `id` and `text`.
 
-```python
-from ep_pipeline.config import PromptConfig
-from ep_pipeline.ai_imitation import build_excerpts_and_prompts, run_batch
+1. `build_excerpts_and_prompts` samples sentence-complete chunks from each text and builds a continuation prompt for each.
+2. `run_batch` loads the MLX model and generates a completion for every prompt, skipping any already done (safe to interrupt and resume).
 
-cfg = PromptConfig(n_chunks=3, chunk_min=500, chunk_max=600)
-excerpts_df, prompts = build_excerpts_and_prompts(corpus, cfg=cfg)
-run_batch(prompts_path, outputs_path, model_id="/path/to/model", cfg=cfg)
-```
+**Outputs:**
+- `excerpts.csv` — human text chunks with metadata, one row per chunk
+- `prompts.jsonl` — the prompts sent to the model
+- `outputs.jsonl` — AI completions, keyed by the same `id` as the excerpts
 
-Or from the terminal:
-```bash
-python -m ep_pipeline.ai_imitation.make_prompts \
-  --input corpus.jsonl --prompts-out prompts.jsonl --excerpts-out excerpts.csv
+### Step 1 — Score human + AI text (`run_scoring.py`)
 
-python -m ep_pipeline.ai_imitation.run_batch_mlx \
-  --prompts prompts.jsonl --output outputs.jsonl --model /path/to/model
-```
+**Input:** `prompts.jsonl` + `outputs.jsonl` from step 0 (or any JSONL corpus).
 
-Outputs: `excerpts.csv` (human chunks + metadata) and `outputs.jsonl` (AI completions), both keyed by the same `id`. Feed into `build_text_table` to produce a unified human/AI table for scoring.
+`build_text_table` merges them into a unified table with one `"human"` row and one `"ai"` row per chunk `id`. Each scoring function then runs through `map_with_checkpoints`, which saves intermediate results and resumes after interruption.
 
-### 1. Score a corpus
+**Output:** `metrics_full.csv` — one row per (chunk, source) with all linguistic, semantic, and structural metrics merged.
 
-Input is JSONL with records carrying an `id` and either full `text` or a `prompt` (+ optional model `completion`). `assemble_corpus.build_text_table` normalizes these into a `(id, source, text)` table, where `source` distinguishes e.g. `human` vs `ai`. Each scoring function runs through `map_with_checkpoints`, which writes intermediate results and resumes after interruption.
+### Step 2 — Fit the factor model (`run_efa.py`)
 
-```python
-from ep_pipeline.config import MetricsConfig
-from ep_pipeline.models import load_embedder, load_spacy_model
-from ep_pipeline.assemble_corpus import build_text_table
-from ep_pipeline.io import load_jsonl
+**Input:** `metrics_full.csv` from step 1.
 
-prompts = load_jsonl("prompts.jsonl")
-outputs = load_jsonl("outputs.jsonl")
-chunks_df = build_text_table(prompts, prompt_key="prompt", outputs=outputs)
-# → one "human" row and one "ai" row per chunk id
-```
+Scales features, checks factorability (KMO + Bartlett), runs parallel analysis to pick the number of factors, and fits an oblimin-rotated factor model.
 
-Output: `metrics_full.csv` — one row per (document, source) with all metrics merged.
-
-### 2. Fit the factor model
-
-```bash
-python ep_pipeline_run_templates/run_efa.py
-```
-
-Scales the features, reports KMO and Bartlett's test, runs **parallel analysis** (500 permutations by default) to select the number of factors, fits an oblimin-rotated factor model, and saves:
-
-- `scaler.joblib`, `fa.joblib`, `feature_cols.joblib` — the fitted objects
+**Outputs:**
+- `scaler.joblib`, `fa.joblib`, `feature_cols.joblib` — fitted objects for step 3
 - `efa_loadings.csv`, `efa_variance.csv`, `top_N_efa_loadings.csv`
-- `efa_factor_scores.csv` and `metrics_with_factor_scores.csv`
-- `scree.png` — scree plot with the parallel-analysis threshold
+- `efa_factor_scores.csv`, `metrics_with_factor_scores.csv`
+- `scree.png`
 
-### 3. Apply to new data
+### Step 3 — Apply to new data (`run_apply_efa.py`)
 
-```bash
-python ep_pipeline_run_templates/run_apply_efa.py
-```
+**Input:** a new `metrics_full.csv` + the fitted objects from step 2.
 
-Loads the saved scaler + factor model and projects a new metrics table onto the existing factors, so new documents are scored on the *same* expressive dimensions.
+Projects new documents onto the existing factor dimensions without refitting, so scores are comparable across datasets.
 
 ## Configuration
 
