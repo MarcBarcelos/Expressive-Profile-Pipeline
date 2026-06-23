@@ -39,3 +39,22 @@ def map_with_checkpoints(records, score_fn, checkpoint_path, key_cols, checkpoin
     write_table(final, checkpoint_path)   # final flush captures the tail
     print(f"Done: {len(final)} rows -> {checkpoint_path}")
     return final
+
+def map_with_checkpoints_batched(records, batch_fn, checkpoint_path, key_cols, batch_size=50):
+    done = read_checkpoint(checkpoint_path)
+    done_rows = done.to_dict("records") if done is not None else []
+    done_keys = {_key(r, key_cols) for r in done_rows} if done is not None else set()
+
+    results = list(done_rows)
+    todo = [r for r in records if _key(r, key_cols) not in done_keys]
+
+    for i in range(0, len(todo), batch_size):
+        batch = todo[i:i + batch_size]
+        results.extend(batch_fn(batch))
+        write_table(pd.DataFrame(results), checkpoint_path)
+        print(f"  checkpoint: {min(i + batch_size, len(todo))}/{len(todo)}")
+
+    final = pd.DataFrame(results)
+    write_table(final, checkpoint_path)
+    print(f"Done: {len(final)} rows -> {checkpoint_path}")
+    return final

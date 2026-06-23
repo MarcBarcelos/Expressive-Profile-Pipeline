@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 @dataclass
 class MetricsConfig:
     # lingustic features
-    spacy_model: str = "en_core_web_sm" # spacy model to use for calculating linguistic features
+    spacy_model: str = "en_core_web_md" # spacy model to use for calculating linguistic features
     mattr_window: int = 100             # changes size of the window for calculating mattr
     entropy_window: int = 100           # changes size of the window for calculating windowed unigram entropy
     trigram_test_frac: float = 0.2      # fraction of trigrams to test for calculating trigram entropy
@@ -30,6 +30,9 @@ class MetricsConfig:
 
     # affective scoring mode
     affect_mode: str = "historical"   # "modern" = all affective lexicons; "historical" = concreteness only
+
+    # text length limit for td scoring (spaCy hard limit is 1M chars)
+    max_text_chars: int = 999_999     # texts longer than this are truncated before td scoring
 
 @dataclass
 class PromptConfig:
