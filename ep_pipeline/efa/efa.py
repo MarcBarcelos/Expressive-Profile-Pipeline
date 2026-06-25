@@ -27,7 +27,7 @@ def check_efa_assumptions(scaled_metrics):
     chi2, p_val = calculate_bartlett_sphericity(scaled_metrics)     # (p<0.05 required)
     return kmo_model, p_val
 
-def parallel_analysis(scaled_metrics, seed, n_perm=500):
+def parallel_analysis(scaled_metrics, seed, n_perm=500, percentile=95):
     corr_matrix = np.corrcoef(scaled_metrics, rowvar=False)
     eigenvalues = np.linalg.eigvalsh(corr_matrix)[::-1]
     n_obs, n_vars = scaled_metrics.shape
@@ -36,9 +36,9 @@ def parallel_analysis(scaled_metrics, seed, n_perm=500):
     for i in range(n_perm):
         rand_data = rng.standard_normal((n_obs, n_vars))
         rand_eigs[i] = np.linalg.eigvalsh(np.corrcoef(rand_data, rowvar=False))[::-1]
-    pa_95th = np.percentile(rand_eigs, 95, axis=0)
-    n_factors = int(np.sum(eigenvalues > pa_95th))
-    return eigenvalues, pa_95th, n_factors
+    pa_threshold = np.percentile(rand_eigs, percentile, axis=0)
+    n_factors = int(np.sum(eigenvalues > pa_threshold))
+    return eigenvalues, pa_threshold, n_factors
 
 def plot_scree(eigenvalues, pa_95th, n_factors, viz_path=None):
     n_show = min(20, len(eigenvalues))
