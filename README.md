@@ -46,9 +46,9 @@ This installs the core dependencies: PyTorch, spaCy, sentence-transformers, Text
 
 You will also need:
 
-- A spaCy English model (default `en_core_web_sm`):
+- A spaCy English model (default `en_core_web_md`):
   ```bash
-  python -m spacy download en_core_web_sm
+  python -m spacy download en_core_web_md
   ```
 - A sentence-transformer embedding model (the templates assume a local E5-small checkpoint).
 - For AI continuation: an MLX-compatible model (Apple Silicon only). Install `mlx-lm` separately:
@@ -73,7 +73,8 @@ ep_pipeline/
 │   ├── get_other_linguistic.py # MATTR, entropy, perplexity
 │   ├── get_semantic.py         # embedding-based semantic metrics
 │   ├── get_lexicon.py          # affective (VAD, emotion) and psycholinguistic norm scorers + loaders
-│   └── runner.py               # checkpointed map over records (resumable)
+│   ├── runner.py               # checkpointed map over records (resumable)
+│   └── pipeline_workers.py     # parallel scoring workers (lingaff+synpun, td, sem) for multiprocessing
 └── efa/
     ├── efa.py                  # factorability checks, parallel analysis, fit/apply
     └── metric_taxonomy.py      # feature categories + drop list
@@ -145,6 +146,39 @@ scores = map_with_checkpoints(records, score_fn, "checkpoint.csv", ["id", "sourc
 ```
 
 **Output:** `metrics_full.csv` — one row per (chunk, source) with all linguistic, semantic, and structural metrics merged.
+
+#### Parallel scoring
+
+For large corpora, `pipeline_workers` provides three self-contained worker functions designed to run concurrently via `multiprocessing.Process`. Each worker loads its own models, reads records from a shared parquet file, and writes to its own checkpoint — no shared state.
+
+```python
+from pathlib import Path
+from multiprocessing import Process
+from ep_pipeline.scoring.pipeline_workers import worker_lingaff_synpun, worker_td, worker_sem
+
+# Save your prepared records DataFrame to a parquet first
+chunks_df.to_parquet("records_tmp.parquet", index=False)
+
+p_a = Process(target=worker_lingaff_synpun,
+              args=("records_tmp.parquet", "/path/to/lexicons",
+                    "lingaff_checkpoint.csv", "synpun_checkpoint.csv", cfg))
+p_b = Process(target=worker_td,
+              args=("records_tmp.parquet", "td_checkpoint.csv", cfg))
+p_c = Process(target=worker_sem,
+              args=("records_tmp.parquet", "/path/to/e5-small",
+                    "sem_checkpoint.csv", cfg))
+
+for p in (p_a, p_b, p_c): p.start()
+for p in (p_a, p_b, p_c): p.join()
+```
+
+- **Worker A** (`worker_lingaff_synpun`) — runs linguistic + affect metrics then syntax/punctuation sequentially, sharing one loaded `nlp_parse` model.
+- **Worker B** (`worker_td`) — runs TextDescriptives via batched `nlp.pipe()`.
+- **Worker C** (`worker_sem`) — runs sentence-embedding semantic metrics.
+
+If a worker fails mid-run its checkpoint is preserved; fix the issue and rerun — completed workers skip already-scored records. On macOS the default `spawn` start method requires worker functions to be importable at module level, which is why they live in the package rather than inline scripts.
+
+`split_vad_lexicon(vad_lexicon)` in `get_lexicon.py` pre-splits the multi-dimensional VAD lexicon into flat per-dimension dicts once at startup. Pass the result to `vad_metrics()` instead of the raw lexicon to avoid rebuilding those dicts on every record.
 
 ### Step 2 — Fit the factor model (`run_efa.py`)
 

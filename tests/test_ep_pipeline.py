@@ -173,9 +173,16 @@ _VAD_LEX = {
     "angry": {"valence": 0.1, "arousal": 0.8, "dominance": 0.7},
 }
 
+# Pre-split format expected by the current vad_metrics() signature
+_VAD_LEX_SPLIT = {
+    "valence":   {"happy": 0.9, "sad": 0.2, "angry": 0.1},
+    "arousal":   {"happy": 0.7, "sad": 0.3, "angry": 0.8},
+    "dominance": {"happy": 0.6, "sad": 0.3, "angry": 0.7},
+}
+
 def test_vad_metrics_normal():
     from ep_pipeline.scoring.get_lexicon import vad_metrics
-    out = vad_metrics(["happy", "sad", "unknown"], _VAD_LEX)
+    out = vad_metrics(["happy", "sad", "unknown"], _VAD_LEX_SPLIT)
     assert abs(out["vad_valence_mean"] - (0.9 + 0.2) / 2) < 1e-6
     assert abs(out["vad_coverage"] - 2 / 3) < 1e-6
     assert "vad_arousal_mean" in out
@@ -183,15 +190,58 @@ def test_vad_metrics_normal():
 
 def test_vad_metrics_empty_tokens():
     from ep_pipeline.scoring.get_lexicon import vad_metrics
-    out = vad_metrics([], _VAD_LEX)
+    out = vad_metrics([], _VAD_LEX_SPLIT)
     assert math.isnan(out["vad_valence_mean"])
     assert math.isnan(out["vad_coverage"])
 
 def test_vad_metrics_no_overlap():
     from ep_pipeline.scoring.get_lexicon import vad_metrics
-    out = vad_metrics(["unknown"], _VAD_LEX)
+    out = vad_metrics(["unknown"], _VAD_LEX_SPLIT)
     assert math.isnan(out["vad_valence_mean"])
     assert out["vad_coverage"] == 0.0
+
+def test_vad_metrics_output_keys():
+    from ep_pipeline.scoring.get_lexicon import vad_metrics
+    out = vad_metrics(["happy"], _VAD_LEX_SPLIT)
+    expected = {"vad_valence_mean", "vad_valence_std",
+                "vad_arousal_mean",  "vad_arousal_std",
+                "vad_dominance_mean","vad_dominance_std",
+                "vad_coverage"}
+    assert set(out.keys()) == expected
+
+
+# --- split_vad_lexicon ---
+
+def test_split_vad_lexicon_structure():
+    from ep_pipeline.scoring.get_lexicon import split_vad_lexicon
+    split = split_vad_lexicon(_VAD_LEX)
+    assert set(split.keys()) == {"valence", "arousal", "dominance"}
+
+def test_split_vad_lexicon_values():
+    from ep_pipeline.scoring.get_lexicon import split_vad_lexicon
+    split = split_vad_lexicon(_VAD_LEX)
+    assert abs(split["valence"]["happy"] - 0.9) < 1e-9
+    assert abs(split["arousal"]["angry"] - 0.8) < 1e-9
+    assert abs(split["dominance"]["sad"] - 0.3) < 1e-9
+
+def test_split_vad_lexicon_all_terms_present():
+    from ep_pipeline.scoring.get_lexicon import split_vad_lexicon
+    split = split_vad_lexicon(_VAD_LEX)
+    for dim in ("valence", "arousal", "dominance"):
+        assert set(split[dim].keys()) == set(_VAD_LEX.keys())
+
+def test_split_vad_lexicon_empty():
+    from ep_pipeline.scoring.get_lexicon import split_vad_lexicon
+    split = split_vad_lexicon({})
+    assert split == {"valence": {}, "arousal": {}, "dominance": {}}
+
+def test_split_vad_lexicon_roundtrip():
+    """split_vad_lexicon output is directly usable by vad_metrics."""
+    from ep_pipeline.scoring.get_lexicon import split_vad_lexicon, vad_metrics
+    split = split_vad_lexicon(_VAD_LEX)
+    out = vad_metrics(["happy", "sad"], split)
+    assert abs(out["vad_valence_mean"] - (0.9 + 0.2) / 2) < 1e-6
+    assert out["vad_coverage"] == 1.0
 
 
 # --- emotion_metrics ---
@@ -492,6 +542,76 @@ def test_map_with_checkpoints_resumes(tmp_path):
     assert len(calls) == 2       # only records 3 and 4 should be processed
     assert len(result) == 5
 
+def test_map_with_checkpoints_no_double_write_exact_multiple(tmp_path):
+    """When len(todo) % checkpoint_every == 0 the final flush is skipped (last_flush fix)."""
+    from ep_pipeline.scoring.runner import map_with_checkpoints
+    from unittest.mock import patch
+    records = [{"id": str(i), "source": "t", "v": i} for i in range(10)]
+    def score_fn(r): return {**r, "x": r["v"]}
+    with patch("ep_pipeline.scoring.runner.write_table") as mock_write:
+        result = map_with_checkpoints(
+            records, score_fn,
+            checkpoint_path=tmp_path / "ckpt.csv",
+            key_cols=["id", "source"],
+            checkpoint_every=10,
+        )
+    # last periodic flush lands exactly on the final record → no extra write
+    assert mock_write.call_count == 1
+    assert len(result) == 10
+
+def test_map_with_checkpoints_writes_final_when_not_exact_multiple(tmp_path):
+    """When records do not align with checkpoint_every, one final flush occurs."""
+    from ep_pipeline.scoring.runner import map_with_checkpoints
+    from unittest.mock import patch
+    records = [{"id": str(i), "source": "t", "v": i} for i in range(10)]
+    def score_fn(r): return {**r, "x": r["v"]}
+    with patch("ep_pipeline.scoring.runner.write_table") as mock_write:
+        map_with_checkpoints(
+            records, score_fn,
+            checkpoint_path=tmp_path / "ckpt.csv",
+            key_cols=["id", "source"],
+            checkpoint_every=3,
+        )
+    # periodic flushes at i=2,5,8 (3 writes) + final flush at end (last_flush=8 ≠ 9)
+    assert mock_write.call_count == 4
+
+def test_map_with_checkpoints_batched_no_extra_flush_when_nonempty(tmp_path):
+    """Batched runner never writes a redundant extra flush after the last batch."""
+    from ep_pipeline.scoring.runner import map_with_checkpoints_batched
+    from unittest.mock import patch
+    records = [{"id": str(i), "source": "t", "v": i} for i in range(10)]
+    def batch_fn(batch): return [{**r, "x": r["v"]} for r in batch]
+    with patch("ep_pipeline.scoring.runner.write_table") as mock_write:
+        result = map_with_checkpoints_batched(
+            records, batch_fn,
+            checkpoint_path=tmp_path / "ckpt.csv",
+            key_cols=["id", "source"],
+            batch_size=5,
+        )
+    # 2 batches → exactly 2 writes; the `if not todo` branch is never reached
+    assert mock_write.call_count == 2
+    assert len(result) == 10
+
+def test_map_with_checkpoints_batched_writes_when_all_already_done(tmp_path):
+    """When all records are already checkpointed, the empty-todo branch writes once."""
+    from ep_pipeline.scoring.runner import map_with_checkpoints_batched
+    from ep_pipeline.io import write_table
+    from unittest.mock import patch
+    records = [{"id": str(i), "source": "t", "v": i} for i in range(5)]
+    done_df = pd.DataFrame([{**r, "x": r["v"]} for r in records])
+    ckpt = tmp_path / "ckpt.csv"
+    write_table(done_df, ckpt)
+    def batch_fn(batch): return [{**r, "x": r["v"]} for r in batch]
+    with patch("ep_pipeline.scoring.runner.write_table") as mock_write:
+        result = map_with_checkpoints_batched(
+            records, batch_fn,
+            checkpoint_path=ckpt,
+            key_cols=["id", "source"],
+            batch_size=5,
+        )
+    assert mock_write.call_count == 1
+    assert len(result) == 5
+
 
 # ── Real lexicon integration tests (skip if EP_LEX_DIR not available) ────────
 # Set EP_LEX_DIR env var to override the default lexicon directory.
@@ -514,6 +634,11 @@ def real_vad_lex():
     )
 
 @pytest.fixture(scope="module")
+def real_vad_lex_split(real_vad_lex):
+    from ep_pipeline.scoring.get_lexicon import split_vad_lexicon
+    return split_vad_lexicon(real_vad_lex)
+
+@pytest.fixture(scope="module")
 def real_emo_lex():
     from ep_pipeline.scoring.get_lexicon import load_emotion_lexicon
     from pathlib import Path
@@ -531,16 +656,16 @@ def test_real_vad_lexicon_known_values(real_vad_lex):
     assert abs(real_vad_lex["angry"]["valence"] - (-0.756)) < 0.01
 
 @_LEX_SKIP
-def test_real_vad_metrics_positive_tokens(real_vad_lex):
+def test_real_vad_metrics_positive_tokens(real_vad_lex_split):
     from ep_pipeline.scoring.get_lexicon import vad_metrics
-    out = vad_metrics(["happy", "joyful", "pleasant"], real_vad_lex)
+    out = vad_metrics(["happy", "joyful", "pleasant"], real_vad_lex_split)
     assert out["vad_valence_mean"] > 0.5
     assert out["vad_coverage"] == 1.0
 
 @_LEX_SKIP
-def test_real_vad_metrics_negative_tokens(real_vad_lex):
+def test_real_vad_metrics_negative_tokens(real_vad_lex_split):
     from ep_pipeline.scoring.get_lexicon import vad_metrics
-    out = vad_metrics(["angry", "furious", "terrible"], real_vad_lex)
+    out = vad_metrics(["angry", "furious", "terrible"], real_vad_lex_split)
     assert out["vad_valence_mean"] < 0.0
 
 @_LEX_SKIP
@@ -1013,3 +1138,91 @@ def test_completion_mlx_lazy_load_on_generate():
     assert c.model is None
     c.generate("test", max_new_tokens=5)
     assert c.model is not None
+
+
+# ── Pipeline workers ──────────────────────────────────────────────────────────
+
+def test_pipeline_workers_importable():
+    from ep_pipeline.scoring.pipeline_workers import worker_lingaff_synpun, worker_td, worker_sem
+    assert callable(worker_lingaff_synpun)
+    assert callable(worker_td)
+    assert callable(worker_sem)
+
+def test_pipeline_workers_in_package_namespace():
+    import ep_pipeline
+    assert callable(ep_pipeline.worker_lingaff_synpun)
+    assert callable(ep_pipeline.worker_td)
+    assert callable(ep_pipeline.worker_sem)
+
+def test_worker_td_smoke(tmp_path):
+    """worker_td dispatches to map_with_checkpoints_batched without needing real models."""
+    from unittest.mock import patch, MagicMock
+    from ep_pipeline.config import MetricsConfig
+
+    records = [{"id": "1", "source": "human", "text": "Hello world."},
+               {"id": "2", "source": "human", "text": "Goodbye world."}]
+    records_fp = tmp_path / "records.parquet"
+    pd.DataFrame(records).to_parquet(records_fp, index=False)
+
+    cfg = MetricsConfig()
+
+    with patch("ep_pipeline.scoring.pipeline_workers.load_td_nlp", return_value=MagicMock()), \
+         patch("ep_pipeline.scoring.pipeline_workers.map_with_checkpoints_batched") as mock_map:
+        from ep_pipeline.scoring.pipeline_workers import worker_td
+        worker_td(records_fp, tmp_path / "td.csv", cfg)
+
+    mock_map.assert_called_once()
+    _, kwargs = mock_map.call_args
+    call_args = mock_map.call_args[0]
+    assert call_args[2] == tmp_path / "td.csv"
+
+def test_worker_sem_smoke(tmp_path):
+    """worker_sem dispatches to map_with_checkpoints without needing real models."""
+    from unittest.mock import patch, MagicMock
+    from ep_pipeline.config import MetricsConfig
+
+    records = [{"id": "1", "source": "human", "text": "Hello world."}]
+    records_fp = tmp_path / "records.parquet"
+    pd.DataFrame(records).to_parquet(records_fp, index=False)
+
+    cfg = MetricsConfig()
+
+    with patch("ep_pipeline.scoring.pipeline_workers.load_embedder", return_value=MagicMock()), \
+         patch("ep_pipeline.scoring.pipeline_workers.map_with_checkpoints") as mock_map:
+        from ep_pipeline.scoring.pipeline_workers import worker_sem
+        worker_sem(records_fp, str(tmp_path / "e5"), tmp_path / "sem.csv", cfg)
+
+    mock_map.assert_called_once()
+    call_args = mock_map.call_args[0]
+    assert call_args[2] == tmp_path / "sem.csv"
+
+def test_worker_lingaff_synpun_smoke(tmp_path):
+    """worker_lingaff_synpun calls map_with_checkpoints twice (lingaff then synpun)."""
+    from unittest.mock import patch, MagicMock
+    from ep_pipeline.config import MetricsConfig
+
+    records = [{"id": "1", "source": "human", "text": "Hello world."}]
+    records_fp = tmp_path / "records.parquet"
+    pd.DataFrame(records).to_parquet(records_fp, index=False)
+
+    # affect_mode="historical" (default) → only concreteness lexicon is loaded
+    cfg = MetricsConfig()
+
+    with patch("ep_pipeline.scoring.pipeline_workers.load_spacy_model", return_value=MagicMock()), \
+         patch("ep_pipeline.scoring.pipeline_workers.load_norm_by_name", return_value={}), \
+         patch("ep_pipeline.scoring.pipeline_workers.map_with_checkpoints") as mock_map:
+        from ep_pipeline.scoring.pipeline_workers import worker_lingaff_synpun
+        worker_lingaff_synpun(
+            records_fp,
+            tmp_path / "lexicons",
+            tmp_path / "lingaff.csv",
+            tmp_path / "synpun.csv",
+            cfg,
+        )
+
+    # called once for lingaff, once for synpun
+    assert mock_map.call_count == 2
+    lingaff_path = mock_map.call_args_list[0][0][2]
+    synpun_path  = mock_map.call_args_list[1][0][2]
+    assert lingaff_path == tmp_path / "lingaff.csv"
+    assert synpun_path  == tmp_path / "synpun.csv"

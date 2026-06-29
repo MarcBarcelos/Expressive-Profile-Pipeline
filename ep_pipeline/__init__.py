@@ -9,6 +9,8 @@ from ep_pipeline.scoring import (
     shannon_entropy, compute_semantic_metrics,
     map_with_checkpoints, map_with_checkpoints_batched, _key,
 )
+from ep_pipeline.scoring.pipeline_workers import (
+    worker_lingaff_synpun, worker_td, worker_sem)
 from ep_pipeline.ai_imitation import (
     CompletionMLX,
     build_excerpts_and_prompts, build_prompt, sample_chunk,
@@ -25,6 +27,8 @@ from ep_pipeline.efa import (
 __all__ = [
     # config
     "MetricsConfig", "PromptConfig",
+    # pipeline workers
+    "worker_lingaff_synpun", "worker_td", "worker_sem",
     # ai_imitation
     "CompletionMLX",
     "build_excerpts_and_prompts", "build_prompt", "sample_chunk",

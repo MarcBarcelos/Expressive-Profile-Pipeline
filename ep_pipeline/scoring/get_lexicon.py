@@ -27,14 +27,16 @@ def score_lexicon(tokens, lexicon, prefix, agg=("mean", "std"), coverage=True):
     return out
 
 # Dimensional affect: NRC-VAD (v2)
-def vad_metrics(tokens, vad_lexicon):
+def split_vad_lexicon(vad_lexicon):
+    return {dim: {t: scores[dim] for t, scores in vad_lexicon.items()}
+            for dim in ("valence", "arousal", "dominance")}
+
+def vad_metrics(tokens, vad_lexicon_split):
     out = {}
-    for dim in ("valence", "arousal", "dominance"):
-        single = {t: scores[dim] for t, scores in vad_lexicon.items()}        # collapse the multi-dim lexicon to one dimension at a time
-        out.update(score_lexicon(tokens, single, prefix=f"vad_{dim}",
+    for dim, lex in vad_lexicon_split.items():
+        out.update(score_lexicon(tokens, lex, prefix=f"vad_{dim}",
                                  agg=("mean", "std"), coverage=False))
-    # one shared coverage figure for the whole VAD lexicon (cheaper than 3 identical ones)
-    covered = sum(1 for t in tokens if t in vad_lexicon)
+    covered = sum(1 for t in tokens if t in vad_lexicon_split["valence"])
     out["vad_coverage"] = float(covered / len(tokens)) if tokens else float("nan")
     return out
 

@@ -5,3 +5,4 @@ from ep_pipeline.scoring.get_semantic import (
     adj_cos, shannon_entropy, compute_semantic_metrics,
 )
 from ep_pipeline.scoring.runner import map_with_checkpoints, map_with_checkpoints_batched, _key
+from ep_pipeline.scoring.pipeline_workers import worker_lingaff_synpun, worker_td, worker_sem
