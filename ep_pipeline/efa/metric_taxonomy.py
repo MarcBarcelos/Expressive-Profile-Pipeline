@@ -1,5 +1,5 @@
 CATEGORIES = {
-    # --- linguistic (TextDescriptives + custom) ---
+    # --- Lexical ---
     "Lexical Richness": (
         "n_unique_tokens", "proportion_unique_tokens", "mattr",
         "oov_ratio", "alpha_ratio",
@@ -9,18 +9,15 @@ CATEGORIES = {
         "token_length_std", "syllables_per_token_mean",
         "syllables_per_token_median", "syllables_per_token_std",
     ),
-    "Document Scale": (
-        "doc_length", "n_tokens", "n_characters", "n_sentences",
-        "sentence_length_mean", "sentence_length_median", "sentence_length_std",
+    "LM Entropy": (
+        "H_unigram_win_mean_nats", "H_unigram_win_std_nats", "PPL_unigram_win_mean",
+        "H_3gram_self_nats", "PPL_3gram_self_nats",
     ),
-    "Repetition": (
-        "duplicate_line_chr_fraction", "duplicate_paragraph_chr_fraction",
-        "duplicate_ngram_chr_fraction_5", "duplicate_ngram_chr_fraction_6",
-        "duplicate_ngram_chr_fraction_7", "duplicate_ngram_chr_fraction_8",
-        "duplicate_ngram_chr_fraction_9", "duplicate_ngram_chr_fraction_10",
-        "top_ngram_chr_fraction_2", "top_ngram_chr_fraction_3",
-        "top_ngram_chr_fraction_4",
+    "Lexical Register": (
+        "aoa_mean", "aoa_std", "prevalence_mean",
     ),
+
+    # --- Syntactic ---
     "POS Distribution": (
         "pos_prop_ADJ", "pos_prop_ADP", "pos_prop_ADV", "pos_prop_AUX",
         "pos_prop_CCONJ", "pos_prop_DET", "pos_prop_INTJ", "pos_prop_NOUN",
@@ -33,16 +30,41 @@ CATEGORIES = {
         "prop_adjacent_dependency_relation_mean",
         "prop_adjacent_dependency_relation_std",
     ),
+    "Syntactic Complexity": (
+        "subordination_ratio", "coordination_ratio", "clauses_per_sentence",
+        "parse_tree_depth_mean", "parse_tree_depth_std",
+        "mean_dependents_per_head", "prop_complex_sentences",
+    ),
+
+    # --- Structural ---
+    "Document Scale": (
+        "doc_length", "n_tokens", "n_characters", "n_sentences",
+        "sentence_length_mean", "sentence_length_median", "sentence_length_std",
+    ),
+    "Repetition": (
+        "duplicate_line_chr_fraction", "duplicate_paragraph_chr_fraction",
+        "duplicate_ngram_chr_fraction_5", "duplicate_ngram_chr_fraction_6",
+        "duplicate_ngram_chr_fraction_7", "duplicate_ngram_chr_fraction_8",
+        "duplicate_ngram_chr_fraction_9", "duplicate_ngram_chr_fraction_10",
+        "top_ngram_chr_fraction_2", "top_ngram_chr_fraction_3",
+        "top_ngram_chr_fraction_4",
+    ),
     "Readability": (
         "flesch_reading_ease", "flesch_kincaid_grade", "smog", "gunning_fog",
         "automated_readability_index", "coleman_liau_index", "lix", "rix",
     ),
-    "LM Entropy": (
-        "H_unigram_win_mean_nats", "H_unigram_win_std_nats", "PPL_unigram_win_mean",
-        "H_3gram_self_nats", "PPL_3gram_self_nats",
+    "Book Size / Shape": (
+        "n_chunks", "embedding_dim",
     ),
 
-    # --- semantic (embedding-based) ---
+    # --- Character-level ---
+    "Punctuation Style": (
+        "comma_rate", "semicolon_rate", "colon_rate", "dash_rate",
+        "exclamation_rate", "question_rate", "parenthesis_rate",
+        "quotation_rate", "ellipsis_rate",
+    ),
+
+    # --- Semantic (embedding-based) ---
     "Coherence & Trajectory": (
         "first_order_coherence", "second_order_coherence",
         "semantic_drift_start_end", "cumulative_semantic_trajectory_length", "semantic_trajectory_length_per_word",
@@ -58,10 +80,8 @@ CATEGORIES = {
         "kmeans_k", "topic_cluster_entropy", "topic_diversity_effective_k",
         "max_cluster_share", "cluster_focus_norm",
     ),
-    "Book Size / Shape": (
-        "n_chunks", "embedding_dim",
-    ),
-     # --- affective: dimensional (NRC-VAD v2) and categorical (NRC Emotion / Affect Intensity Lexicon)---
+
+    # --- Affective: dimensional (NRC-VAD v2), categorical (NRC Emotion / Affect Intensity Lexicon), psycholinguistic norms ---
     "Affect Dimensions": (
         "vad_valence_mean", "vad_valence_std",
         "vad_arousal_mean", "vad_arousal_std",
@@ -72,28 +92,23 @@ CATEGORIES = {
         "emo_joy", "emo_sadness", "emo_surprise", "emo_trust",
         "emo_diversity",
     ),
-    # --- psycholinguistic norms (concreteness + register) ---
     "Concreteness & Imagery": (
         "concreteness_mean", "concreteness_std",
-    ),
-    "Lexical Register": (
-        "aoa_mean", "aoa_std", "prevalence_mean",
-    ),
-    # --- punctuation / orthographic expressivity ---
-    "Punctuation Style": (
-        "comma_rate", "semicolon_rate", "colon_rate", "dash_rate",
-        "exclamation_rate", "question_rate", "parenthesis_rate",
-        "quotation_rate", "ellipsis_rate",
-    ),
-    # --- deeper syntactic complexity ---
-    "Syntactic Complexity": (
-        "subordination_ratio", "coordination_ratio", "clauses_per_sentence",
-        "parse_tree_depth_mean", "parse_tree_depth_std",
-        "mean_dependents_per_head", "prop_complex_sentences",
     ),
 }
 
 CATEGORY_OF = {metric: cat for cat, metrics in CATEGORIES.items() for metric in metrics}
+
+DOMAINS = {
+    "Lexical": ("Lexical Richness", "Word Form Complexity", "LM Entropy", "Lexical Register"),
+    "Syntactic": ("POS Distribution", "Syntax", "Syntactic Complexity"),
+    "Structural": ("Document Scale", "Repetition", "Readability", "Book Size / Shape"),
+    "Character-level": ("Punctuation Style",),
+    "Semantic": ("Coherence & Trajectory", "On-topic vs. Dispersion", "Topic Strength & Volume", "Clustering & Diversity"),
+    "Affective": ("Affect Dimensions", "Discrete Emotions", "Concreteness & Imagery"),
+}
+DOMAIN_OF = {cat: dom for dom, cats in DOMAINS.items() for cat in cats}
+METRIC_DOMAIN_OF = {metric: DOMAIN_OF[cat] for metric, cat in CATEGORY_OF.items()}
 
 DROP_THESE = {
     # Lexical Richness
