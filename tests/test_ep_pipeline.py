@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+# Change these to own path
 import os
 os.environ.setdefault("EP_E5_MODEL_PATH",
     "/Users/au728638/Library/CloudStorage/OneDrive-Aarhusuniversitet/Desktop/3. PhD Project/3. Code/models/e5-small")
