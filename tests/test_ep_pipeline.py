@@ -6,19 +6,17 @@ Model-dependent tests (spaCy, sentence-transformers) are skipped automatically
 if the models are not present.
 """
 import math
+import os
 
 import numpy as np
 import pandas as pd
 import pytest
 
-# Change these to own path
-import os
-os.environ.setdefault("EP_E5_MODEL_PATH",
-    "/Users/au728638/Library/CloudStorage/OneDrive-Aarhusuniversitet/Desktop/3. PhD Project/3. Code/models/e5-small")
-os.environ.setdefault("EP_MLX_MODEL_PATH",
-    "/Users/au728638/Library/CloudStorage/OneDrive-Aarhusuniversitet/Desktop/3. PhD Project/3. Code/models/Qwen3.5-9B-OptiQ-4bit")
-os.environ.setdefault("EP_LEX_DIR",
-    "/Users/au728638/Library/CloudStorage/OneDrive-Aarhusuniversitet/Desktop/3. PhD Project/3. Code/models/lexicons")
+# Model-dependent tests below are skipped automatically unless you point them at
+# your own local model/lexicon paths, e.g.:
+#   export EP_LEX_DIR=/path/to/models/lexicons
+#   export EP_E5_MODEL_PATH=/path/to/models/e5-small
+#   export EP_MLX_MODEL_PATH=/path/to/models/Qwen3.5-9B-OptiQ-4bit
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
